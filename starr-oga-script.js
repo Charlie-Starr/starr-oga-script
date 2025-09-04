@@ -4,8 +4,8 @@
 // @version       6.2.1 // FIX: Settings hotkey, landscape UI buttons, and general inspection.
 // @description   Starr: A real human woman. Seductive, witty, naughty, cheeky, flirty. Now powered by your own OpenRouter API Key. Cone ID access, animated UI, notifications & dark mode.
 // @match         *://*/*
-// @downloadURL   https://charlie-starr.github.io/starr-deepseek_modified-script/Starr1Res.js
-// @updateURL     https://charlie-starr.github.io/starr-deepseek_modified-script/Starr1Res.js
+// @downloadURL   https://starr-oga-script-m0k7ikznt-lifted-charlies-projects.vercel.app/starr-oga-script.js
+// @updateURL     https://starr-oga-script-m0k7ikznt-lifted-charlies-projects.vercel.app/starr-oga-script.js
 // @grant         GM_setValue
 // @grant         GM_getValue
 // @grant         GM_notification
@@ -2694,3 +2694,4 @@ ${selfCorrection}
     init();
 
 })();
+
