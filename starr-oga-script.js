@@ -4,8 +4,8 @@
 // @version       7.0.0
 // @description   Starr: A real human woman. Seductive, witty, naughty, cheeky, flirty. Now powered by a private backend for enhanced security and logic.
 // @match         *://*/*
-// @downloadURL   https://starr-oga-script-enuif8qqk-lifted-charlies-projects.vercel.app/starr-oga-script.js
-// @updateURL     https://starr-oga-script-enuif8qqk-lifted-charlies-projects.vercel.app/starr-oga-script.js
+// @downloadURL   https://starr-oga-script.vercel.app/starr-oga-script.js
+// @updateURL     https://starr-oga-script.vercel.app/starr-oga-script.js
 // @grant         GM_setValue
 // @grant         GM_getValue
 // @grant         GM_notification
@@ -19,7 +19,7 @@
     'use strict';
 
     // --- CONFIGURATION ---
-    const VERCEL_BACKEND_URL = 'https://starr-oga-script-enuif8qqk-lifted-charlies-projects.vercel.app/api/script.js'; // IMPORTANT: Replace with your actual Vercel function URL
+    const VERCEL_BACKEND_URL = 'https://starr-oga-script.vercel.app/api/script.js'; // IMPORTANT: Replace with your actual Vercel function URL
 
     // CSS Selector for the dating site's input text area where you type replies
     const REPLY_INPUT_SELECTOR = '#reply-textarea';
@@ -1427,4 +1427,5 @@
     init();
 
 })();
+
 
