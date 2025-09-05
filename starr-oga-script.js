@@ -11,7 +11,7 @@
 // @grant         GM_notification
 // @grant         GM_xmlhttpRequest
 // @grant         GM_setClipboard
-// @connect       your-vercel-project-url.vercel.app
+// @connect       starr-oga-script.vercel.app
 // @connect       *
 // ==/UserScript==
 
@@ -1427,5 +1427,6 @@
     init();
 
 })();
+
 
 
