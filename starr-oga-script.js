@@ -18,7 +18,7 @@
     'use strict';
 
     // --- CONFIGURATION ---
-    const VERCEL_BACKEND_URL = 'https://starr-oga-script.vercel.app/api/script.js';
+    const VERCEL_BACKEND_URL = 'https://starr-oga-script.vercel.app/api/starr.js';
     // CSS Selector for the dating site's input text area where you type replies
     const REPLY_INPUT_SELECTOR = '#reply-textarea';
 
@@ -1425,6 +1425,7 @@
     init();
 
 })();
+
 
 
 
