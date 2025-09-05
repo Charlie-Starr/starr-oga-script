@@ -4,13 +4,14 @@
 // @version       7.0.0
 // @description   Starr: A real human woman. Seductive, witty, naughty, cheeky, flirty. Now powered by a private backend for enhanced security and logic.
 // @match         *://*/*
-// @downloadURL   https://starr-oga-script.vercel.app/api/starr.js
-// @updateURL     https://starr-oga-script.vercel.app/api/starr.js
+// @downloadURL   https://starr-oga-script.vercel.app/starr-oga-script.js
+// @updateURL     https://starr-oga-script.vercel.app/starr-oga-script.js
 // @grant         GM_setValue
 // @grant         GM_getValue
 // @grant         GM_notification
 // @grant         GM_xmlhttpRequest
 // @grant         GM_setClipboard
+// @connect       starr-oga-script.vercel.app
 // @connect       *
 // ==/UserScript==
 
@@ -1425,6 +1426,7 @@
     init();
 
 })();
+
 
 
 
