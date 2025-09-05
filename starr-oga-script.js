@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name          Starr (User API Key Edition) - Modified
+// @name          Starr (Vercel Backend Edition)
 // @namespace     http://tampermonkey.net/
-// @version       6.2.1
-// @description   Starr: A real human woman. Seductive, witty, naughty, cheeky, flirty. Now powered by your own OpenRouter API Key. Cone ID access, animated UI, notifications & dark mode.
+// @version       7.0.0
+// @description   Starr: A real human woman. Seductive, witty, naughty, cheeky, flirty. Now powered by a private backend for enhanced security and logic.
 // @match         *://*/*
 // @downloadURL   https://starr-oga-script-m0k7ikznt-lifted-charlies-projects.vercel.app/starr-oga-script.js
 // @updateURL     https://starr-oga-script-m0k7ikznt-lifted-charlies-projects.vercel.app/starr-oga-script.js
@@ -11,15 +11,17 @@
 // @grant         GM_notification
 // @grant         GM_xmlhttpRequest
 // @grant         GM_setClipboard
+// @connect       your-vercel-project-url.vercel.app
 // @connect       *
 // ==/UserScript==
 
-(function() {
+(function () {
     'use strict';
 
     // --- CONFIGURATION ---
-    const VERCEL_FUNCTION_URL = 'https://starr-oga-script-m0k7ikznt-lifted-charlies-projects.vercel.app/api/script.js';
-    // CSS Selectors for the dating site's input text area where you type replies
+    const VERCEL_BACKEND_URL = 'https://starr-oga-script-m0k7ikznt-lifted-charlies-projects.vercel.app/api/script.js'; // IMPORTANT: Replace with your actual Vercel function URL
+
+    // CSS Selector for the dating site's input text area where you type replies
     const REPLY_INPUT_SELECTOR = '#reply-textarea';
 
     // CSS Selector for the CONE ID displayed on the UI
@@ -38,18 +40,7 @@
         aboutUser: '#about-user'
     };
 
-    // PI Detection (Client-Side)
-    const PI_DETECTION_CONFIG = {
-        soundUrl: 'https://charlie-starr.github.io/starr-sound-assets/mixkit-elevator-tone-2863.wav',
-        regex: {
-            'Phone Number': /(\+\d{1,3}[- ]?)?\(?\d{3}\)?[- ]?\d{3}[- ]?\d{4}/g,
-            'Email': /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g,
-            'Socials': /(@[a-zA-Z0-9_]{4,})/g,
-            'Name': /my name is\s+([A-Z][a-z]+)/ig,
-        }
-    };
-
-    // Cinematic Timer Warnings Configuration
+    // Timer Warning Configuration
     const TIMER_WARNING_CONFIG = {
         selector: '#timeoutTimer',
         sounds: {
@@ -57,19 +48,12 @@
             emergency: 'https://charlie-starr.github.io/starr-sound-assets/mixkit-facility-alarm-sound-999.wav'
         }
     };
-    
-    // Violation Sound URL
+
+    const PI_SOUND_URL = 'https://charlie-starr.github.io/starr-sound-assets/mixkit-elevator-tone-2863.wav';
     const VIOLATION_SOUND_URL = 'https://charlie-starr.github.io/starr-sound-assets/mixkit-interface-option-select-2573.wav';
 
-    // Theme Auto-Switch Configuration
-    const AUTO_THEME_MAP = {
-        night: 'theme-midnight',
-        morning: 'bubblegum',
-        afternoon: 'theme-valentine',
-        evening: 'theme-halloween'
-    };
-    // --- END CONFIGURATION ---
 
+    // --- STATE VARIABLES ---
     let isAuthorized = false;
     let storedUserConeId = null;
     let waitingForUiDetectionAndMessage = false;
@@ -80,6 +64,9 @@
     let isUIPopulated = false;
     let isTimerWarningEnabled = true;
     let isAudioUnlocked = false;
+    let conversationHistory = [];
+    let lastProcessedMessage = '';
+    let selectedReplyIndex = -1;
 
     // --- UI & STYLES ---
     const style = document.createElement("style");
@@ -264,7 +251,7 @@
         }
         #starr-pi-log-close { background: var(--starr-send-button-bg); color: white; }
         #starr-pi-close { background: var(--starr-close-button-bg); color: var(--starr-close-button-text); }
-        /* ✅ NEW: Violation Warning Popup */
+        /* Violation Warning Popup */
         #starr-violation-warning-overlay {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
             background: rgba(0,0,0,0.6); z-index: 10003;
@@ -352,7 +339,6 @@
             --starr-submit-cone-id-button-bg: #ff1493; --starr-loading-color: #ff69b4;
             --starr-settings-panel-background: #fff0f5; --starr-settings-panel-border: #e04482;
         }
-        /* ✅ NEW: Timer Warning Themes */
         .theme-warning-orange {
             --starr-popup-background: #3d2c20; --starr-border-color: #ff8c00;
             --starr-header-color: #ffae42; --starr-header-border: #e67e22;
@@ -399,7 +385,7 @@
             background-color: var(--starr-settings-button-bg); color: var(--starr-settings-button-text);
             padding: 6px 10px; flex-grow: 0; min-width: unset; max-width: unset;
         }
-        /* ✅ REVISED: Mobile UI Styles */
+        /* REVISED: Mobile UI Styles */
         .ui-portrait #starr-popup {
             width: 95vw !important;
             max-width: 380px !important; /* Trimmed width */
@@ -424,7 +410,7 @@
             gap: 8px;
             margin-top: 10px;
         }
-        /* ✅ NEW: Icon Buttons for Mobile */
+        /* Icon Buttons for Mobile */
         .ui-portrait #starr-buttons button, .ui-portrait #starr-buttons .spicy-regen-main-button {
             font-size: 18px !important;
             padding: 8px !important;
@@ -445,6 +431,7 @@
     `;
     document.head.appendChild(style);
 
+    // --- UI ELEMENT CREATION ---
     const button = document.createElement("button");
     button.id = "starr-button";
     button.textContent = "Flirt with Starr 🥰";
@@ -540,15 +527,16 @@
         </div>
     `;
     document.body.appendChild(violationWarningOverlay);
-    
+
+
+    // --- AUDIO & ELEMENT SELECTORS ---
     const warningSound = new Audio(TIMER_WARNING_CONFIG.sounds.warning);
     warningSound.loop = true;
     const emergencySound = new Audio(TIMER_WARNING_CONFIG.sounds.emergency);
     emergencySound.loop = true;
-    const piSound = new Audio(PI_DETECTION_CONFIG.soundUrl);
+    const piSound = new Audio(PI_SOUND_URL);
     const violationSound = new Audio(VIOLATION_SOUND_URL);
 
-    // --- Element Selectors ---
     const starrHeader = document.getElementById("starr-header");
     const starrResponses = document.getElementById("starr-responses");
     const starrInput = document.getElementById("starr-input");
@@ -582,37 +570,32 @@
     const timerWarningToggle = document.getElementById('timer-warning-toggle');
     const starrEngineSelect = document.getElementById('starr-engine-select');
 
-    let conversationHistory = [];
-    let lastProcessedMessage = '';
-    let selectedReplyIndex = -1;
-
-    // --- Core Logic Communication ---
-    async function callVercelFunction(data) {
-        data.apiKey = GM_getValue("starr_openrouter_api_key", null);
-
-        const response = await new Promise((resolve, reject) => {
-             GM_xmlhttpRequest({
-                method: 'POST',
-                url: VERCEL_FUNCTION_URL,
-                headers: { 'Content-Type': 'application/json' },
-                data: JSON.stringify(data),
-                responseType: 'json',
-                timeout: 60000,
-                onload: (res) => resolve(res),
-                onerror: (err) => reject(err),
-                ontimeout: (err) => reject(err)
+    // --- BACKEND COMMUNICATION ---
+    async function callBackend(action, data = {}) {
+        return new Promise((resolve, reject) => {
+            GM_xmlhttpRequest({
+                method: "POST",
+                url: VERCEL_BACKEND_URL,
+                headers: { "Content-Type": "application/json" },
+                data: JSON.stringify({ action, ...data }),
+                onload: (response) => {
+                    if (response.status >= 200 && response.status < 300) {
+                        resolve(JSON.parse(response.responseText));
+                    } else {
+                        console.error(`Backend Error for action '${action}':`, response.status, response.responseText);
+                        reject(new Error(`HTTP error ${response.status}: ${response.statusText}`));
+                    }
+                },
+                onerror: (error) => {
+                    console.error(`Network Error for action '${action}':`, error);
+                    reject(error);
+                }
             });
         });
-
-        if (response.status >= 400 || !response.response) {
-            console.error("Starr Backend Error:", response);
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-
-        return response.response;
     }
 
-    // --- Data Gathering Functions ---
+    // --- CORE FRONTEND LOGIC ---
+
     function getLatestMessage() {
         const messageElements = document.querySelectorAll(ALL_CUSTOMER_MESSAGES_SELECTOR);
         if (messageElements.length > 0) {
@@ -621,219 +604,150 @@
         return '';
     }
 
-    function getLoggedInConeId() {
-        const coneIdElement = document.querySelector(CONE_ID_UI_SELECTOR);
-        if (coneIdElement) {
-            const coneIdText = coneIdElement.textContent.trim();
-            const match = coneIdText.match(/(\w+)$/);
-            if (match && match[1]) {
-                return match[1];
-            }
+    async function checkAndSummarize() {
+        const isSummaryEnabled = GM_getValue('starr_summary_enabled', true);
+        const lastMessage = getLatestMessage();
+        const apiKey = GM_getValue("starr_openrouter_api_key", null);
+
+        if (!isSummaryEnabled || lastMessage.length < 300 || !apiKey) {
+            summaryContainer.style.display = 'none';
+            return;
         }
-        return null;
+
+        console.log("Starr: Long message detected, requesting summary from backend.");
+        await forceSummary(true);
     }
 
-    function getPersonaInfo() {
-        const nameElement = document.querySelector('h5.fw-bold.mb-1');
-        const locationElement = document.querySelector('h6.text-black-50');
-        const aboutElement = document.querySelector('#about-profile');
-        const allSubtleTds = document.querySelectorAll('td.p-1.ps-3.bg-light-subtle');
-        let name = nameElement ? nameElement.textContent.trim() : "the other person";
+    async function forceSummary(isAuto = false) {
+        const lastMessage = getLatestMessage();
+        const apiKey = GM_getValue("starr_openrouter_api_key", null);
 
-        if (nameElement) {
-            let fullText = nameElement.textContent.trim();
-            const startIndex = fullText.indexOf('(');
-            const endIndex = fullText.indexOf(')');
-            if (startIndex !== -1 && endIndex !== -1 && endIndex > startIndex) {
-                name = fullText.substring(startIndex + 1, endIndex);
+        if (lastMessage.length === 0 || !apiKey) {
+            if (!apiKey) console.warn("Starr Summarizer: No API key set.");
+            return;
+        }
+        if (!isAuto) console.log("Starr: Force summary hotkey pressed.");
+
+        const summaryBox = document.getElementById('starr-summary-box');
+        if (summaryBox && summaryContainer) {
+            summaryContainer.style.display = 'flex';
+            summaryBox.innerHTML = `<strong>Summary:</strong> <em>Summarizing...</em>`;
+        }
+
+        try {
+            const result = await callBackend('summarize', { text: lastMessage, apiKey });
+            if (result.success && result.summary) {
+                displaySummary(result.summary);
             } else {
-                name = fullText;
+                displaySummary("Could not generate a summary.");
+            }
+        } catch (error) {
+            console.error("Starr: Failed to fetch summary from backend.", error);
+            displaySummary("Summary failed to load.");
+        }
+    }
+
+    async function scanMessageForPI() {
+        const text = lastProcessedMessage;
+        if (!text) {
+            alert("No message detected to scan.");
+            return;
+        }
+        console.log("Starr: Requesting intelligent PI scan from backend.");
+        const apiKey = GM_getValue("starr_openrouter_api_key", null);
+        if (!apiKey) {
+            alert("Cannot scan for PI without an API key.");
+            return;
+        }
+
+        const originalContent = piScanButton.textContent;
+        piScanButton.textContent = '⏳';
+        piScanButton.disabled = true;
+
+        try {
+            const result = await callBackend('scan_pi', { text, apiKey });
+            if (result.success && result.pi_data && result.pi_data.toUpperCase().trim() !== 'NONE') {
+                displayAiPiNotification(result.pi_data);
+            } else {
+                GM_notification({ text: "The intelligent scan found no new personal information.", timeout: 3000, title: "Starr PI Scan" });
+            }
+        } catch (error) {
+            console.error("Starr: AI PI Scan failed:", error);
+            alert("Starr: The intelligent PI scan failed. Check the console for details.");
+        } finally {
+            piScanButton.textContent = originalContent;
+            piScanButton.disabled = false;
+        }
+    }
+
+    async function fetchResponses(tone = 'plain') {
+        if (accessDeniedPermanent || waitingForUiDetectionAndMessage) return;
+
+        let apiKey = GM_getValue("starr_openrouter_api_key", null);
+        if (!apiKey) {
+            const entered = prompt("🔑 Please enter your OpenRouter.ai API key:");
+            if (entered) {
+                apiKey = entered.trim();
+                GM_setValue("starr_openrouter_api_key", apiKey);
+            } else {
+                alert("Starr needs an API key to work.");
+                return;
             }
         }
-        let location = locationElement ? locationElement.textContent.trim() : "an unknown location";
-        let about = aboutElement ? aboutElement.textContent.trim() : null;
-        let status = "unknown";
-        let age = "unknown";
 
-        if (allSubtleTds.length > 0) {
-            for (let i = 0; i < allSubtleTds.length; i++) {
-                const text = allSubtleTds[i].textContent.trim();
-                if (text.toLowerCase().includes('married') || text.toLowerCase().includes('single') || text.toLowerCase().includes('divorced') || text.toLowerCase().includes('widowed')) {
-                    status = text;
-                    if (allSubtleTds.length > i + 1 && !isNaN(parseInt(allSubtleTds[i + 1].textContent.trim()))) {
-                        age = allSubtleTds[i + 1].textContent.trim();
-                    }
-                    break;
-                }
-                if (!isNaN(parseInt(text)) && text.length < 4) {
-                    age = text;
-                    if (i > 0 && allSubtleTds[i - 1].textContent.trim().length > 2 && isNaN(parseInt(allSubtleTds[i - 1].textContent.trim()))) {
-                        status = allSubtleTds[i - 1].textContent.trim();
-                    }
-                    if (allSubtleTds.length > i + 1 && allSubtleTds[i + 1].textContent.trim().length > 2 && isNaN(parseInt(allSubtleTds[i + 1].textContent.trim()))) {
-                        status = allSubtleTds[i + 1].textContent.trim();
-                    }
-                    break;
-                }
+        starrLoading.style.setProperty('display', 'flex', 'important');
+        starrResponses.innerHTML = "";
+
+        const persona = getPersonaInfo();
+        const customer = getCustomerInfo();
+        const timeOfDay = getTimeOfDay();
+        const engine = GM_getValue("starr_engine", "zephyr");
+
+        const allMessagePElements = document.querySelectorAll(ALL_CUSTOMER_MESSAGES_SELECTOR);
+        let lastMessageHasImage = false;
+        if (allMessagePElements.length > 0) {
+            const lastMessagePElement = allMessagePElements[allMessagePElements.length - 1];
+            const messageContainer = lastMessagePElement.parentElement;
+            if (messageContainer && messageContainer.querySelector('img[src*="myoperatorservice.com/uploads/"]')) {
+                lastMessageHasImage = true;
             }
         }
-        if (status === "unknown" && allSubtleTds.length > 0) { status = allSubtleTds[0].textContent.trim(); }
-        if (age === "unknown" && allSubtleTds.length > 1) { age = allSubtleTds[1].textContent.trim(); }
-
-        return { name, status, age, location, about };
-    }
-
-    function getCustomerInfo() {
-        const getElementText = (selector) => document.querySelector(selector)?.textContent.trim() || null;
-        const location = getElementText(CUSTOMER_INFO_SELECTORS.location);
-        const age = getElementText(CUSTOMER_INFO_SELECTORS.age);
-        const status = getElementText(CUSTOMER_INFO_SELECTORS.status);
-        const gender = getElementText(CUSTOMER_INFO_SELECTORS.gender);
-        const about = getElementText(CUSTOMER_INFO_SELECTORS.aboutUser);
-
-        return {
-            gender: gender || "male",
-            status: status || "unknown",
-            age: age || "unknown",
-            location: location || "your area",
-            about: about
-        };
-    }
-
-    function getTimeOfDay() {
-        const timeElement = document.querySelector(CUSTOMER_INFO_SELECTORS.localTime);
-        if (!timeElement) return "the current time";
-        const timeString = timeElement.textContent.trim();
-        const hour = parseInt(timeString.split(':')[0], 10);
-        if (isNaN(hour)) return "the current time";
-        if (hour >= 5 && hour < 12) return "morning";
-        if (hour >= 12 && hour < 18) return "afternoon";
-        if (hour >= 18 && hour < 21) return "evening";
-        return "night";
-    }
-
-    function isPersonaIntro(msgEl, idx) {
-        if (idx !== 0) return false;
-        const text = msgEl.innerText.toLowerCase();
-        const messageContainer = msgEl.closest('div.d-flex.gap-2');
-        if (!messageContainer || !messageContainer.querySelector("img")) return false;
-
-        const feminineMarkers = ["baby", "darling", "gorgeous", "honey", "sweetheart"];
-        const explicitMarkers = ["wet", "naked", "hard", "cum", "horny", "kiss", "touch", "pussy", "dick"];
-        if (feminineMarkers.some(w => text.includes(w)) && explicitMarkers.some(w => text.includes(w))) {
-            console.log("Starr Collector: Detected and ignored a likely persona intro message.", text);
-            return true;
-        }
-        return false;
-    }
-
-    function getAllCustomerMessages() {
-        const messages = document.querySelectorAll(ALL_CUSTOMER_MESSAGES_SELECTOR);
-        const processedMessages = [];
-        const siteChatInput = document.querySelector(REPLY_INPUT_SELECTOR);
-        const siteChatInputValue = siteChatInput ? siteChatInput.value.trim() : '';
-
-        const customerMessages = Array.from(messages).filter((msg, idx) => !isPersonaIntro(msg, idx));
-
-        customerMessages.forEach(messageElement => {
-            const messageText = messageElement.innerText.trim();
-            if (messageText && messageText !== siteChatInputValue) {
-                processedMessages.push({ role: "user", content: messageText });
-            }
-        });
-        return processedMessages;
-    }
-
-    async function imageToDataURI(url) {
-        const response = await new Promise((resolve, reject) => {
-            GM_xmlhttpRequest({
-                method: 'GET',
-                url: url,
-                responseType: 'blob',
-                onload: resolve,
-                onerror: reject,
+        
+        try {
+            const result = await callBackend('generate_response', {
+                apiKey,
+                conversationHistory,
+                persona,
+                customer,
+                timeOfDay,
+                tone,
+                engine,
+                lastMessageHasImage
             });
-        });
-        const blob = response.response;
-        return new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onloadend = () => resolve(reader.result);
-            reader.onerror = reject;
-            reader.readAsDataURL(blob);
-        });
+
+            if (result.success && result.reply) {
+                displayAndVoiceReply(result.reply);
+            } else {
+                console.error("Backend failed to generate response:", result.error);
+                displayAndVoiceReply("Sorry baby, my mind's a little fuzzy right now... Let’s talk about something else, okay?");
+            }
+        } catch (error) {
+            console.error("Error fetching response from backend:", error);
+            displayAndVoiceReply("Sorry baby, my mind's a little fuzzy right now... Let’s talk about something else, okay?");
+        } finally {
+            starrLoading.style.setProperty('display', 'none', 'important');
+        }
     }
 
-    // --- UI Display & Manipulation ---
+
+    // --- UI & HELPER FUNCTIONS (UNCHANGED LOGIC, BUT NOW CALL BACKEND) ---
+
     function resetPersona() {
         console.log('Starr Persona Reset: Clearing conversation context for new message.');
         conversationHistory = [];
         starrResponses.innerHTML = '';
         if (summaryContainer) {
             summaryContainer.style.display = 'none';
-        }
-    }
-
-    function displaySummary(summaryText) {
-        const summaryBox = document.getElementById('starr-summary-box');
-        if (summaryBox && summaryContainer) {
-            summaryContainer.style.display = 'flex';
-            summaryBox.innerHTML = `<strong>Summary:</strong> ${summaryText}`;
-        }
-    }
-
-    function detectAndNotifyPI(textToScan, source) {
-        let foundPI = [];
-        for (const [label, regex] of Object.entries(PI_DETECTION_CONFIG.regex)) {
-            regex.lastIndex = 0;
-            let match;
-            while ((match = regex.exec(textToScan)) !== null) {
-                const piValue = match[1] ? match[1] : match[0];
-                foundPI.push(`${label}: ${piValue}`);
-            }
-        }
-        if (foundPI.length === 0) return;
-        const formattedPI = foundPI.join('\n');
-        console.log(`PI Detected in ${source} Message:`, formattedPI);
-        const oldNotification = document.getElementById('pi-notification');
-        if (oldNotification) oldNotification.remove();
-        const notification = document.createElement('div');
-        notification.id = 'pi-notification';
-        notification.style.cssText = `
-            position: fixed; top: 20px; right: 20px; background-color: #ff4757; color: white;
-            padding: 15px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.2);
-            font-family: sans-serif; font-size: 14px; z-index: 10002; cursor: pointer;
-            border: 2px solid #ff1f32;
-        `;
-        notification.innerHTML = '⚠️ <b>Personal Info Detected!</b><br>Click to copy details.';
-        document.body.appendChild(notification);
-        piSound.play().catch(e => console.error("PI Sound playback failed:", e.name, e.message));
-        notification.addEventListener('click', () => {
-            GM_setClipboard(formattedPI, 'text');
-            notification.style.backgroundColor = '#2ed573';
-            notification.innerHTML = '✅ Copied to clipboard!';
-            setTimeout(() => notification.remove(), 2000);
-        });
-    }
-
-    function displayAiPiNotification(piText) {
-        if (piEditorPopup && piEditorList) {
-            console.log("Starr: Displaying AI PI scan results in editor popup.");
-            piEditorList.innerHTML = '';
-            const lines = piText.split('\n').filter(line => line.trim() !== '');
-            lines.forEach(line => {
-                const itemDiv = document.createElement('div');
-                itemDiv.className = 'starr-pi-item';
-                const checkbox = document.createElement('input');
-                checkbox.type = 'checkbox';
-                const textInput = document.createElement('input');
-                textInput.type = 'text';
-                textInput.value = `| ${line.trim()}`;
-                itemDiv.appendChild(checkbox);
-                itemDiv.appendChild(textInput);
-                piEditorList.appendChild(itemDiv);
-            });
-            piEditorPopup.style.display = 'flex';
-            piSound.play().catch(e => console.error("PI Sound playback failed:", e.name, e.message));
         }
     }
 
@@ -852,14 +766,13 @@
                 utterance.pitch = 1.0;
                 const voices = window.speechSynthesis.getVoices();
                 if (voices.length > 0) {
-                    const femaleVoice = voices.find(voice =>
+                     const femaleVoice = voices.find(voice =>
                         voice.lang.startsWith('en') &&
                         (voice.name.includes('Female') || voice.name.includes('Google US English') || voice.name.includes('Zira') || voice.name.includes('Susan')) &&
                         !voice.name.includes('Male')
                     );
-                    if (femaleVoice) {
-                        utterance.voice = femaleVoice;
-                    }
+
+                    if (femaleVoice) utterance.voice = femaleVoice;
                 }
                 window.speechSynthesis.speak(utterance);
             } catch (ttsError) {
@@ -867,246 +780,6 @@
             }
         }
         isUIPopulated = true;
-    }
-
-    function pasteIntoSiteChat(text) {
-        const cleanedText = text.replace(/\s*Copy\s*$/, '');
-        const siteChatInput = document.querySelector(REPLY_INPUT_SELECTOR);
-        if (siteChatInput) {
-            siteChatInput.focus();
-            siteChatInput.value = cleanedText;
-            siteChatInput.dispatchEvent(new Event('input', { bubbles: true }));
-            siteChatInput.dispatchEvent(new Event('change', { bubbles: true }));
-            siteChatInput.focus();
-        } else {
-            console.warn("Starr: Could not find the dating site's chat input box (" + REPLY_INPUT_SELECTOR + ").");
-            GM_notification({
-                text: "Warning: Could not auto-paste. Check " + REPLY_INPUT_SELECTOR + " in script config.",
-                timeout: 5000,
-                title: "Starr Warning"
-            });
-        }
-    }
-
-    function pasteIntoLogbook(textToPaste) {
-        const logbookElement = document.querySelector('textarea[aria-label="member-note-message"]');
-
-        if (logbookElement) {
-            logbookElement.focus();
-            logbookElement.click();
-
-            const existingLog = logbookElement.value.trim();
-            logbookElement.value = existingLog ? `${textToPaste}\n${existingLog}` : textToPaste;
-
-            logbookElement.dispatchEvent(new Event('input', { bubbles: true }));
-            logbookElement.dispatchEvent(new Event('change', { bubbles: true }));
-
-            logbookElement.blur();
-            return true;
-        } else {
-            console.error("Starr PI Logger: Member logbook element not found.");
-            return false;
-        }
-    }
-
-    function updatePopupUI() {
-        popup.style.setProperty('display', 'flex', 'important');
-
-        if (accessDeniedPermanent) {
-            authSection.style.setProperty('display', 'none', 'important');
-            chatSection.style.setProperty('display', 'none', 'important');
-            waitingMessage.style.setProperty('display', 'block', 'important');
-            waitingMessage.style.color = 'red';
-            waitingMessage.textContent = "Access denied, babe. Your CONE ID on the site doesn't match the one you entered, or it's not authorized. This Starr isn't for you... 💔";
-            return;
-        }
-
-        if (!isAuthorized) {
-            authSection.style.setProperty('display', 'block', 'important');
-            chatSection.style.setProperty('display', 'none', 'important');
-            waitingMessage.style.setProperty('display', 'none', 'important');
-            authMessage.textContent = "Ogbeni pay money joor... Your sub don finish. You dey whine?";
-            coneIdInput.value = storedUserConeId || "";
-            coneIdInput.focus();
-        } else {
-            authSection.style.setProperty('display', 'none', 'important');
-            if (waitingForUiDetectionAndMessage) {
-                chatSection.style.setProperty('display', 'none', 'important');
-                waitingMessage.style.setProperty('display', 'block', 'important');
-                waitingMessage.style.color = 'var(--starr-waiting-message-color)';
-                waitingMessage.textContent = "Access granted! Now, click operator's service site 'start chatting' button and wait for a customer message to arrive.";
-            } else {
-                chatSection.style.setProperty('display', 'flex', 'important');
-                waitingMessage.style.setProperty('display', 'none', 'important');
-                starrInput.focus();
-            }
-        }
-        starrSettingsPanel.style.display = 'none';
-    }
-
-    function applyTheme(themeName) {
-        const themeClasses = Object.values(AUTO_THEME_MAP)
-            .concat(['theme-warning-orange', 'theme-emergency-red'])
-            .filter(t => t !== 'bubblegum')
-            .map(t => t.startsWith('theme-') ? t : 'theme-' + t);
-
-        document.documentElement.classList.remove(...themeClasses, 'theme-bubblegum');
-        if (themeName && themeName !== 'bubblegum' && !themeName.startsWith('theme-')) {
-            themeName = 'theme-' + themeName;
-        }
-        if (themeName && themeName !== 'theme-bubblegum') {
-            document.documentElement.classList.add(themeName);
-        }
-    }
-
-    function updateButtonLabelsForUIMode() {
-        const isLandscape = document.body.classList.contains('ui-landscape');
-        const sendButton = document.getElementById('starr-send');
-        const regenerateButton = document.getElementById('starr-regenerate');
-        const forceKeyButton = document.getElementById('starr-force-key');
-        const settingsButton = document.getElementById('starr-settings-button');
-        const closeButton = document.getElementById('starr-close');
-
-        if (isLandscape) {
-            sendButton.innerHTML = 'Send';
-            regenerateButton.innerHTML = 'Regenerate';
-            forceKeyButton.innerHTML = 'Force New API Key';
-            settingsButton.innerHTML = 'Settings';
-            closeButton.innerHTML = 'Close';
-        } else {
-            sendButton.innerHTML = '📤';
-            regenerateButton.innerHTML = '🔄';
-            forceKeyButton.innerHTML = '🔑';
-            settingsButton.innerHTML = '⚙️';
-            closeButton.innerHTML = '❌';
-        }
-    }
-
-    function updateThemeBasedOnTime() {
-        if (!isAutoThemeEnabled) return;
-        const timePeriod = getTimeOfDay();
-        const themeToSet = AUTO_THEME_MAP[timePeriod] || 'bubblegum';
-        applyTheme(themeToSet);
-        GM_setValue('starr_current_theme', themeToSet);
-    }
-
-    function resetTimerState() {
-        warningSound.pause();
-        emergencySound.pause();
-        warningSound.currentTime = 0;
-        emergencySound.currentTime = 0;
-        starrHeader.innerHTML = "Talk to Starr, baby💦...";
-        if (isAutoThemeEnabled) {
-            updateThemeBasedOnTime();
-        } else {
-            const savedTheme = GM_getValue('starr_current_theme', 'bubblegum');
-            applyTheme(savedTheme);
-        }
-        currentTimerState = 'normal';
-    }
-
-    async function applySavedUIPreferences() {
-        const savedDarkMode = GM_getValue('starr_dark_mode', false);
-        darkModeToggle.checked = savedDarkMode;
-        if (savedDarkMode) document.documentElement.classList.add("dark-mode");
-
-        const savedSendButtonGlow = GM_getValue('starr_send_button_glow', true);
-        sendButtonGlowToggle.checked = savedSendButtonGlow;
-        starrSendButton.classList.toggle("glow", savedSendButtonGlow);
-
-        const savedSummaryToggle = GM_getValue('starr_summary_enabled', true);
-        summaryToggle.checked = savedSummaryToggle;
-
-        const savedPiScanToggle = GM_getValue('starr_pi_scan_enabled', true);
-        piScanToggle.checked = savedPiScanToggle;
-        piScanButton.style.display = savedPiScanToggle ? 'flex' : 'none';
-
-        const savedTimerWarning = GM_getValue('starr_timer_warning_enabled', true);
-        timerWarningToggle.checked = savedTimerWarning;
-        isTimerWarningEnabled = savedTimerWarning;
-
-        voiceReplyToggle.checked = GM_getValue('starr_voice_reply', true);
-
-        const savedScrutiny = GM_getValue('starr_scrutiny_enabled', true);
-        scrutinyToggle.checked = savedScrutiny;
-        isScrutinyEnabled = savedScrutiny;
-
-        const savedEngine = GM_getValue('starr_engine', 'zephyr');
-        if (starrEngineSelect) starrEngineSelect.value = savedEngine;
-
-        isAutoThemeEnabled = await GM_getValue('starr_auto_theme_enabled', false);
-        autoThemeToggle.checked = isAutoThemeEnabled;
-        if (isAutoThemeEnabled) {
-            updateThemeBasedOnTime();
-        } else {
-            const savedTheme = GM_getValue('starr_current_theme', 'bubblegum');
-            applyTheme(savedTheme);
-        }
-    }
-    
-    // --- Core Actions & Handlers ---
-
-    async function handleResponseGeneration(input, tone = 'plain') {
-        if (accessDeniedPermanent || waitingForUiDetectionAndMessage) return;
-
-        let apiKey = GM_getValue("starr_openrouter_api_key", null);
-        if (!apiKey) {
-            const entered = prompt("🔑 Please enter your OpenRouter.ai API key:");
-            if (entered) {
-                apiKey = entered.trim();
-                GM_setValue("starr_openrouter_api_key", apiKey);
-            } else {
-                alert("Starr needs an API key to work.");
-                return;
-            }
-        }
-        starrLoading.style.setProperty('display', 'flex', 'important');
-        starrResponses.innerHTML = "";
-
-        // Gather image data if present
-        let imageUris = [];
-        const allMessagePElements = document.querySelectorAll(ALL_CUSTOMER_MESSAGES_SELECTOR);
-        if (allMessagePElements.length > 0) {
-            const lastMessagePElement = allMessagePElements[allMessagePElements.length - 1];
-            const messageContainer = lastMessagePElement.parentElement;
-            if (messageContainer) {
-                const imagesToProcess = messageContainer.querySelectorAll('img[src*="myoperatorservice.com/uploads/"]');
-                if (imagesToProcess.length > 0) {
-                    try {
-                        imageUris = await Promise.all(Array.from(imagesToProcess).map(img => imageToDataURI(img.src)));
-                    } catch (imageError) {
-                        console.error("Starr: Failed to process images for API request.", imageError);
-                    }
-                }
-            }
-        }
-
-        const dataToSend = {
-            action: 'generate_response',
-            input: input,
-            tone: tone,
-            conversationHistory: conversationHistory,
-            persona: getPersonaInfo(),
-            customer: getCustomerInfo(),
-            timeOfDay: getTimeOfDay(),
-            engine: GM_getValue("starr_engine", "zephyr"),
-            imageUris: imageUris
-        };
-
-        try {
-            const result = await callVercelFunction(dataToSend);
-            if (result.success) {
-                displayAndVoiceReply(result.reply);
-            } else {
-                console.error("Backend generation error:", result.error);
-                displayAndVoiceReply("Sorry baby, my mind's a little fuzzy right now... " + (result.error || ""));
-            }
-        } catch (error) {
-            console.error("Network error during generation:", error);
-            displayAndVoiceReply("I'm having trouble connecting right now, let's try again in a moment, okay?");
-        } finally {
-            starrLoading.style.setProperty('display', 'none', 'important');
-        }
     }
 
     async function handleReplyClick(event) {
@@ -1123,92 +796,29 @@
         }
 
         clickedReplyElement.classList.add('checking');
-
+        const apiKey = GM_getValue("starr_openrouter_api_key", null);
+        
         try {
-            const result = await callVercelFunction({ action: 'check_violation', text: textUnderScrutiny });
+            const result = await callBackend('check_violation', { text: textUnderScrutiny, apiKey });
+
             if (result.success && result.verdict === "block") {
                 const reasonText = result.issues.map(issue => issue.reason).join('; ');
                 violationReason.textContent = reasonText || "A policy violation was detected.";
                 violationWarningOverlay.style.display = 'flex';
-                violationSound.play().catch(e => console.error("Violation alarm playback failed:", e));
+                violationSound.play().catch(e => console.error("Violation sound failed:", e));
             } else {
                 pasteIntoSiteChat(textUnderScrutiny);
                 conversationHistory.push({ role: "assistant", content: textUnderScrutiny });
                 popup.style.setProperty('display', 'none', 'important');
             }
         } catch (error) {
-            console.error("Violation check failed:", error);
-            pasteIntoSiteChat(textUnderScrutiny); // Fail safe: allow paste
+            console.error("Error during violation check:", error);
+            // Fail safe: allow pasting if backend fails
+            pasteIntoSiteChat(textUnderScrutiny);
             conversationHistory.push({ role: "assistant", content: textUnderScrutiny });
             popup.style.setProperty('display', 'none', 'important');
         } finally {
             clickedReplyElement.classList.remove('checking');
-        }
-    }
-
-    async function checkAndSummarize() {
-        const isSummaryEnabled = GM_getValue('starr_summary_enabled', true);
-        const lastMessage = getLatestMessage();
-        const longMessageChars = 300;
-
-        if (!isSummaryEnabled || lastMessage.length < longMessageChars) {
-            summaryContainer.style.display = 'none';
-            return;
-        }
-
-        console.log("Starr: Long message detected, generating automatic summary.");
-        await forceSummary();
-    }
-
-    async function forceSummary() {
-        const isSummaryEnabled = GM_getValue('starr_summary_enabled', true);
-        const lastMessage = getLatestMessage();
-        if (!isSummaryEnabled || lastMessage.length === 0) return;
-
-        const summaryBox = document.getElementById('starr-summary-box');
-        if (summaryBox && summaryContainer) {
-            summaryContainer.style.display = 'flex';
-            summaryBox.innerHTML = `<strong>Summary:</strong> <em>Summarizing...</em>`;
-        }
-
-        try {
-            const result = await callVercelFunction({ action: 'summarize', text: lastMessage });
-            if (result.success) {
-                displaySummary(result.summary);
-            } else {
-                displaySummary("Could not generate a summary.");
-            }
-        } catch (error) {
-            console.error("Starr: Failed to fetch summary.", error);
-            displaySummary("Summary failed to load.");
-        }
-    }
-
-    async function scanMessageForPI() {
-        console.log("Starr: Performing intelligent PI scan on message.");
-        const text = lastProcessedMessage;
-        if (!text) {
-            alert("No message detected to scan.");
-            return;
-        }
-
-        const originalContent = piScanButton.textContent;
-        piScanButton.textContent = '⏳';
-        piScanButton.disabled = true;
-
-        try {
-            const result = await callVercelFunction({ action: 'scan_pi', text: text });
-            if (result.success && result.pi_text && result.pi_text.toUpperCase().trim() !== 'NONE') {
-                displayAiPiNotification(result.pi_text);
-            } else {
-                GM_notification({ text: "The intelligent scan found no new personal information.", timeout: 3000, title: "Starr PI Scan" });
-            }
-        } catch (error) {
-            console.error("Starr: AI PI Scan failed:", error);
-            alert("Starr: The intelligent PI scan failed. Check the console for details.");
-        } finally {
-            piScanButton.textContent = originalContent;
-            piScanButton.disabled = false;
         }
     }
 
@@ -1226,7 +836,7 @@
 
         if (storedUserConeId) {
             try {
-                const result = await callVercelFunction({ action: 'check_auth', coneId: storedUserConeId });
+                const result = await callBackend('check_auth', { coneId: storedUserConeId });
                 if (result.success && result.isAuthorized) {
                     isAuthorized = true;
                     GM_setValue('user_auth_last_checked_timestamp', Date.now());
@@ -1251,7 +861,7 @@
         }
 
         try {
-            const result = await callVercelFunction({ action: 'check_auth', coneId: enteredConeId });
+            const result = await callBackend('check_auth', { coneId: enteredConeId });
             if (result.success && result.isAuthorized) {
                 GM_setValue('user_cone_id', enteredConeId);
                 GM_setValue('user_auth_last_checked_timestamp', Date.now());
@@ -1269,161 +879,19 @@
                 updatePopupUI();
             }
         } catch (error) {
-            console.error("Manual Auth check failed:", error);
-            authMessage.textContent = "Could not verify ID. Please try again.";
+            authMessage.textContent = "Error connecting to server for authorization.";
         }
     }
 
-    async function performFinalAuthorizationCheck() {
-        if (!waitingForUiDetectionAndMessage) return;
-        const uiConeId = getLoggedInConeId();
-
-        try {
-            const result = await callVercelFunction({ action: 'final_auth_check', uiConeId: uiConeId, storedConeId: storedUserConeId });
-            if (result.success && result.isAuthorized) {
-                waitingForUiDetectionAndMessage = false;
-                accessDeniedPermanent = false;
-                updatePopupUI();
-                GM_notification({ text: "Starr access fully confirmed! Start chatting, baby.", timeout: 3000, title: "Starr Activated ✨" });
-            } else {
-                accessDeniedPermanent = true;
-                updatePopupUI();
-                GM_setValue('user_cone_id', null);
-                isAuthorized = false;
-            }
-        } catch (error) {
-            console.error("Final auth check failed:", error);
-            accessDeniedPermanent = true;
-            updatePopupUI();
-        }
-    }
-
-    async function pollForNewMessages() {
-        if (!isAuthorized) return;
-        if (waitingForUiDetectionAndMessage) {
-            await performFinalAuthorizationCheck();
-            if (accessDeniedPermanent || waitingForUiDetectionAndMessage) return;
-        }
-        if (accessDeniedPermanent) return;
-
-        const allCustomerMessages = getAllCustomerMessages();
-        if (allCustomerMessages.length > 0) {
-            const currentLatestMessageText = allCustomerMessages[allCustomerMessages.length - 1].content;
-            if (currentLatestMessageText !== lastProcessedMessage) {
-                lastProcessedMessage = currentLatestMessageText;
-                console.log("Starr: New customer message detected:", currentLatestMessageText);
-
-                resetPersona();
-                updateThemeBasedOnTime();
-                detectAndNotifyPI(currentLatestMessageText, 'Customer');
-                await checkAndSummarize();
-
-                conversationHistory = allCustomerMessages;
-
-                popup.style.setProperty('display', 'flex', 'important');
-                updatePopupUI();
-                starrInput.value = currentLatestMessageText;
-                starrInput.focus();
-                try {
-                    await handleResponseGeneration(currentLatestMessageText);
-                } catch (error) {
-                    console.error("Starr: Error in automatic message processing:", error);
-                }
-            }
-        }
-    }
-
-    // --- Initialization and Event Listeners ---
-    function unlockAudio() {
-        if (isAudioUnlocked) return;
-        console.log("Starr: Attempting to unlock audio context...");
-        const sounds = [warningSound, emergencySound, piSound, violationSound];
-        sounds.forEach(sound => {
-            const promise = sound.play();
-            if (promise !== undefined) {
-                promise.then(() => { sound.pause(); sound.currentTime = 0; })
-                    .catch(error => console.warn("Starr: Audio unlock failed for one sound.", error.name));
-            }
-        });
-        if ('speechSynthesis' in window) {
-            window.speechSynthesis.cancel();
-            window.speechSynthesis.speak(new SpeechSynthesisUtterance(' '));
-        }
-        isAudioUnlocked = true;
-    }
-
-    async function initializeStarrPopup() {
-        if (!isAudioUnlocked) unlockAudio();
-        if (isUIPopulated) {
-            popup.style.setProperty('display', 'flex', 'important');
-            starrInput.focus();
-            return;
-        }
-
-        updateButtonLabelsForUIMode();
-        await checkUserAuthorizationStatus();
-
-        if (isAuthorized && !waitingForUiDetectionAndMessage && !accessDeniedPermanent) {
-            waitingForUiDetectionAndMessage = true;
-        }
-        updatePopupUI();
-        resetPersona();
-        starrInput.value = "";
-        selectedReplyIndex = -1;
-    }
-
-    let currentTimerState = 'normal';
-    function pollForTimer() {
-        if (!isTimerWarningEnabled || popup.style.display === 'none') {
-            if (currentTimerState !== 'normal') resetTimerState();
-            return;
-        }
-        const timerElement = document.querySelector(TIMER_WARNING_CONFIG.selector);
-        if (!timerElement) {
-            if (currentTimerState !== 'normal') resetTimerState();
-            return;
-        }
-        const timeText = timerElement.textContent.trim();
-        const [minutes, seconds] = timeText.split(':').map(Number);
-        const totalSeconds = (minutes * 60) + seconds;
-
-        if (totalSeconds <= 0) {
-            if (currentTimerState !== 'normal') {
-                resetTimerState();
-                document.getElementById('starr-close').click();
-            }
-        } else if (totalSeconds <= 60) {
-            if (currentTimerState !== 'emergency') {
-                currentTimerState = 'emergency';
-                applyTheme('emergency-red');
-                starrHeader.innerHTML = "⚠️ REPLY NOW! ⚠️";
-                warningSound.pause();
-                emergencySound.play().catch(e => console.error("Emergency sound failed:", e));
-            }
-        } else if (totalSeconds <= 120) {
-            if (currentTimerState !== 'warning') {
-                currentTimerState = 'warning';
-                applyTheme('warning-orange');
-                starrHeader.innerHTML = "⚠️ Message time running out...";
-                emergencySound.pause();
-                warningSound.play().catch(e => console.error("Warning sound failed:", e));
-            }
-        } else {
-            if (currentTimerState !== 'normal') resetTimerState();
-        }
-    }
-
+    // --- Welcome Screen and Mode Selection ---
     async function displayWelcomeScreen() {
         const welcomeHTML = `
             <div id="starr-welcome-overlay">
                 <div id="starr-welcome-popup">
-                    <div class="welcome-title">
-                        Hey, fucker... <span class="emoji">🔥</span>
-                    </div>
+                    <div class="welcome-title">Hey, fucker... <span class="emoji">🔥</span></div>
                     <div class="starr-replies" id="starr-welcome-features">
                         <div class="starr-reply">
                             <p>I see you're new here. Before we get naughty, let me show you what I can do for you, baby...</p>
-
                             <strong>My Core Features:</strong>
                             <ul>
                                 <li><strong>Advanced AI:</strong> Switch between Response Style Engines (Zephyr, Aurora, Velora) in settings.</li>
@@ -1433,7 +901,6 @@
                                 <li><strong>PI Scanner:</strong> I can intelligently scan for personal info before you send anything risky.</li>
                                 <li><strong>Adaptive UI:</strong> Choose between Landscape 💻 or Portrait 📱 mode for your comfort.</li>
                             </ul>
-
                             <strong>Your Hotkeys to Control Me:</strong>
                             <ul>
                                 <li><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>S</kbd> &mdash; Open or close me anytime.</li>
@@ -1451,72 +918,26 @@
                              <p>You can find more toggles in the <strong>Settings</strong> panel (⚙️). Now, let's have some fun...</p>
                         </div>
                     </div>
-                    <div id="starr-buttons">
-                         <button id="starr-welcome-close">Got it, let's go!</button>
-                    </div>
+                    <div id="starr-buttons"><button id="starr-welcome-close">Got it, let's go!</button></div>
                 </div>
-            </div>
-        `;
-
+            </div>`;
         const welcomeCSS = `
-            #starr-welcome-overlay {
-                position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-                background: rgba(0, 0, 0, 0.75);
-                z-index: 99999; display: flex; justify-content: center; align-items: center;
-                font-family: Arial, sans-serif;
-            }
-            #starr-welcome-popup {
-                width: 650px; max-height: 90vh;
-                background: var(--starr-popup-background); border: 2px solid var(--starr-border-color);
-                border-radius: 20px; padding: 20px; box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
-                display: flex; flex-direction: column; color: var(--starr-text-color);
-            }
-            #starr-welcome-popup .welcome-title {
-                font-family: 'Georgia', serif; font-size: 28px; color: var(--starr-header-color);
-                text-align: center; margin-bottom: 20px; padding-bottom: 10px;
-                border-bottom: 2px solid var(--starr-header-border);
-                font-weight: 900 !important; opacity: 1 !important;
-                display: flex; align-items: center; justify-content: center; gap: 8px;
-            }
-            #starr-welcome-popup .welcome-title .emoji {
-                font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
-                font-size: 1.1em;
-            }
+            #starr-welcome-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.75); z-index: 99999; display: flex; justify-content: center; align-items: center; font-family: Arial, sans-serif; }
+            #starr-welcome-popup { width: 650px; max-height: 90vh; background: var(--starr-popup-background); border: 2px solid var(--starr-border-color); border-radius: 20px; padding: 20px; box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2); display: flex; flex-direction: column; color: var(--starr-text-color); }
+            #starr-welcome-popup .welcome-title { font-family: 'Georgia', serif; font-size: 28px; color: var(--starr-header-color); text-align: center; margin-bottom: 20px; padding-bottom: 10px; border-bottom: 2px solid var(--starr-header-border); font-weight: 900 !important; opacity: 1 !important; display: flex; align-items: center; justify-content: center; gap: 8px; }
+            #starr-welcome-popup .welcome-title .emoji { font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif; font-size: 1.1em; }
             #starr-welcome-features { overflow-y: auto; padding-right: 10px; margin-bottom: 20px; }
-            #starr-welcome-features .starr-reply {
-                background: var(--starr-reply-background); border-color: var(--starr-reply-border);
-                color: var(--starr-reply-text); font-size: 14px; line-height: 1.6;
-                cursor: default; white-space: normal;
-            }
-            #starr-welcome-features strong {
-                color: var(--starr-header-color); display: block;
-                margin-top: 15px; margin-bottom: 5px; font-size: 1.1em;
-            }
+            #starr-welcome-features .starr-reply { background: var(--starr-reply-background); border-color: var(--starr-reply-border); color: var(--starr-reply-text); font-size: 14px; line-height: 1.6; cursor: default; white-space: normal; }
+            #starr-welcome-features strong { color: var(--starr-header-color); display: block; margin-top: 15px; margin-bottom: 5px; font-size: 1.1em; }
             #starr-welcome-features ul { list-style: none; padding-left: 10px; margin: 0; }
             #starr-welcome-features li { margin-bottom: 8px; }
             #starr-welcome-features p { margin: 15px 0 5px 0; }
-            #starr-welcome-features kbd {
-                background-color: var(--starr-popup-background); border: 1px solid var(--starr-border-color);
-                border-radius: 4px; padding: 2px 6px; font-family: monospace;
-                font-size: 0.9em; color: var(--starr-text-color);
-                box-shadow: 1px 1px 1px rgba(0,0,0,0.1); margin: 0 2px;
-            }
-            #starr-welcome-close {
-                padding: 12px 25px; border-radius: 8px; font-weight: bold; border: none; cursor: pointer;
-                font-size: 16px; width: 100%; background: var(--starr-send-button-bg); color: white;
-                position: relative; overflow: hidden; transition: background-color 0.3s ease, box-shadow 0.3s ease;
-            }
-            #starr-welcome-close::before {
-                content: ''; position: absolute; top: -50%; left: -50%; width: 200%; height: 200%;
-                background: radial-gradient(circle, var(--starr-send-button-glow-color) 0%, transparent 70%);
-                animation: heatGlow 1.5s infinite alternate; z-index: 0; opacity: 0.7;
-            }
-            #starr-welcome-close:hover { box-shadow: 0 0 10px var(--starr-send-button-glow-color); }
-        `;
-
+            #starr-welcome-features kbd { background-color: var(--starr-popup-background); border: 1px solid var(--starr-border-color); border-radius: 4px; padding: 2px 6px; font-family: monospace; font-size: 0.9em; color: var(--starr-text-color); box-shadow: 1px 1px 1px rgba(0,0,0,0.1); margin: 0 2px; }
+            #starr-welcome-close { padding: 12px 25px; border-radius: 8px; font-weight: bold; border: none; cursor: pointer; font-size: 16px; width: 100%; background: var(--starr-send-button-bg); color: white; position: relative; overflow: hidden; transition: background-color 0.3s ease, box-shadow 0.3s ease; }
+            #starr-welcome-close::before { content: ''; position: absolute; top: -50%; left: -50%; width: 200%; height: 200%; background: radial-gradient(circle, var(--starr-send-button-glow-color) 0%, transparent 70%); animation: heatGlow 1.5s infinite alternate; z-index: 0; opacity: 0.7; }
+            #starr-welcome-close:hover { box-shadow: 0 0 10px var(--starr-send-button-glow-color); }`;
         document.head.insertAdjacentHTML('beforeend', `<style>${welcomeCSS}</style>`);
         document.body.insertAdjacentHTML('beforeend', welcomeHTML);
-
         document.getElementById('starr-welcome-close').addEventListener('click', async () => {
             document.getElementById('starr-welcome-overlay').remove();
             await GM_setValue('hasSeenWelcomePage', true);
@@ -1528,354 +949,477 @@
         const modeHTML = `
             <div id="starr-mode-overlay">
                 <div id="starr-mode-popup">
-                    <h3>Choose Your UI Mode</h3>
-                    <p>How do you want Starr’s interface to appear?</p>
+                    <h3>Choose Your UI Mode</h3><p>How do you want Starr’s interface to appear?</p>
                     <div id="starr-mode-buttons">
                         <button id="mode-landscape">💻 Landscape (Desktop)</button>
                         <button id="mode-portrait">📱 Portrait (Mobile)</button>
                     </div>
                 </div>
-            </div>
-        `;
-
+            </div>`;
         const modeCSS = `
-            #starr-mode-overlay {
-                position: fixed; top:0; left:0; width:100%; height:100%;
-                background: rgba(0,0,0,0.75); display:flex; align-items:center; justify-content:center;
-                z-index: 99999; font-family: Arial, sans-serif;
-            }
-            #starr-mode-popup {
-                background: var(--starr-popup-background);
-                border: 2px solid var(--starr-border-color);
-                border-radius: 20px; padding: 25px;
-                color: var(--starr-text-color); width: 90vw; max-width: 400px; text-align: center;
-                box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
-            }
-             #starr-mode-popup h3 {
-                font-family: 'Georgia', serif; font-size: 24px;
-                color: var(--starr-header-color);
-                text-align: center; margin: 0 0 10px 0;
-            }
+            #starr-mode-overlay { position: fixed; top:0; left:0; width:100%; height:100%; background: rgba(0,0,0,0.75); display:flex; align-items:center; justify-content:center; z-index: 99999; font-family: Arial, sans-serif; }
+            #starr-mode-popup { background: var(--starr-popup-background); border: 2px solid var(--starr-border-color); border-radius: 20px; padding: 25px; color: var(--starr-text-color); width: 90vw; max-width: 400px; text-align: center; box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2); }
+            #starr-mode-popup h3 { font-family: 'Georgia', serif; font-size: 24px; color: var(--starr-header-color); text-align: center; margin: 0 0 10px 0; }
             #starr-mode-buttons { display: flex; flex-direction: column; gap: 10px; margin-top: 20px; }
-            #starr-mode-buttons button {
-                padding: 12px; border: none; border-radius: 8px; cursor: pointer;
-                font-weight: bold; font-size: 14px; background: var(--starr-send-button-bg); color:white;
-                transition: transform 0.2s ease;
-            }
-            #starr-mode-buttons button:hover {
-                transform: scale(1.05);
-            }
-        `;
+            #starr-mode-buttons button { padding: 12px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 14px; background: var(--starr-send-button-bg); color:white; transition: transform 0.2s ease; }
+            #starr-mode-buttons button:hover { transform: scale(1.05); }`;
         document.head.insertAdjacentHTML('beforeend', `<style>${modeCSS}</style>`);
         document.body.insertAdjacentHTML('beforeend', modeHTML);
-
         document.getElementById('mode-landscape').onclick = async () => {
-            document.body.classList.remove('ui-portrait');
-            document.body.classList.add('ui-landscape');
+            document.body.classList.remove('ui-portrait'); document.body.classList.add('ui-landscape');
             await GM_setValue('starr_ui_mode', 'landscape');
-            updateButtonLabelsForUIMode();
-            document.getElementById('starr-mode-overlay').remove();
-            await initializeStarrPopup();
+            updateButtonLabelsForUIMode(); document.getElementById('starr-mode-overlay').remove();
+            initializeStarrPopup();
         };
         document.getElementById('mode-portrait').onclick = async () => {
-            document.body.classList.remove('ui-landscape');
-            document.body.classList.add('ui-portrait');
+            document.body.classList.remove('ui-landscape'); document.body.classList.add('ui-portrait');
             await GM_setValue('starr_ui_mode', 'portrait');
-            updateButtonLabelsForUIMode();
-            document.getElementById('starr-mode-overlay').remove();
-            await initializeStarrPopup();
+            updateButtonLabelsForUIMode(); document.getElementById('starr-mode-overlay').remove();
+            initializeStarrPopup();
         };
+    }
+
+    // --- (The rest of the non-logic, UI-only functions go here) ---
+    // This includes: unlockAudio, updatePopupUI, initializeStarrPopup, pasteIntoSiteChat,
+    // displayAiPiNotification, setupSpicyRegenModes, applyTheme, updateButtonLabelsForUIMode,
+    // updateThemeBasedOnTime, getLoggedInConeId, performFinalAuthorizationCheck,
+    // isPersonaIntro, getAllCustomerMessages, pollForNewMessages, pollForTimer, resetTimerState,
+    // pasteIntoLogbook, applySavedUIPreferences, etc.
+    // Their internal logic remains the same, but their calls to core logic
+    // have been replaced by calls to the `callBackend` function.
+
+    function unlockAudio() {
+        if (isAudioUnlocked) return;
+        const sounds = [warningSound, emergencySound, piSound, violationSound];
+        sounds.forEach(sound => {
+            const promise = sound.play();
+            if (promise !== undefined) {
+                promise.then(() => { sound.pause(); sound.currentTime = 0; }).catch(() => {});
+            }
+        });
+        if ('speechSynthesis' in window) {
+            window.speechSynthesis.cancel();
+            window.speechSynthesis.speak(new SpeechSynthesisUtterance(' '));
+        }
+        isAudioUnlocked = true;
+    }
+
+    function updatePopupUI() {
+        popup.style.setProperty('display', 'flex', 'important');
+        if (accessDeniedPermanent) {
+            authSection.style.setProperty('display', 'none', 'important');
+            chatSection.style.setProperty('display', 'none', 'important');
+            waitingMessage.style.setProperty('display', 'block', 'important');
+            waitingMessage.style.color = 'red';
+            waitingMessage.textContent = "Access denied, babe. Your CONE ID on the site doesn't match the one you entered, or it's not authorized. This Starr isn't for you... 💔";
+            return;
+        }
+        if (!isAuthorized) {
+            authSection.style.setProperty('display', 'block', 'important');
+            chatSection.style.setProperty('display', 'none', 'important');
+            waitingMessage.style.setProperty('display', 'none', 'important');
+            authMessage.textContent = "Ogbeni pay money joor... Your sub don finish. You dey whine?";
+            coneIdInput.value = storedUserConeId || "";
+            coneIdInput.focus();
+        } else {
+            authSection.style.setProperty('display', 'none', 'important');
+            if (waitingForUiDetectionAndMessage) {
+                chatSection.style.setProperty('display', 'none', 'important');
+                waitingMessage.style.setProperty('display', 'block', 'important');
+                waitingMessage.style.color = 'var(--starr-waiting-message-color)';
+                waitingMessage.textContent = "Access granted! Now, click operator's service site 'start chatting' button and wait for a customer message to arrive.";
+            } else {
+                chatSection.style.setProperty('display', 'flex', 'important');
+                waitingMessage.style.setProperty('display', 'none', 'important');
+                starrInput.focus();
+            }
+        }
+        starrSettingsPanel.style.display = 'none';
+    }
+
+    async function initializeStarrPopup() {
+        if (!isAudioUnlocked) unlockAudio();
+        if (isUIPopulated) {
+            popup.style.setProperty('display', 'flex', 'important');
+            starrInput.focus();
+            return;
+        }
+        updateButtonLabelsForUIMode();
+        await checkUserAuthorizationStatus();
+        if (isAuthorized && !waitingForUiDetectionAndMessage && !accessDeniedPermanent) {
+            waitingForUiDetectionAndMessage = true;
+        }
+        updatePopupUI();
+        resetPersona();
+        starrInput.value = "";
+        selectedReplyIndex = -1;
+    }
+    
+    function pasteIntoSiteChat(text) {
+        const cleanedText = text.replace(/\s*Copy\s*$/, '');
+        const siteChatInput = document.querySelector(REPLY_INPUT_SELECTOR);
+        if (siteChatInput) {
+            siteChatInput.focus();
+            siteChatInput.value = cleanedText;
+            siteChatInput.dispatchEvent(new Event('input', { bubbles: true }));
+            siteChatInput.dispatchEvent(new Event('change', { bubbles: true }));
+            siteChatInput.focus();
+        } else {
+            GM_notification({ text: "Warning: Could not auto-paste. Check " + REPLY_INPUT_SELECTOR + " in script config.", timeout: 5000, title: "Starr Warning" });
+        }
+    }
+
+    function displayAiPiNotification(piText) {
+        if (piEditorPopup && piEditorList) {
+            piEditorList.innerHTML = '';
+            const lines = piText.split('\n').filter(line => line.trim() !== '');
+            lines.forEach(line => {
+                const itemDiv = document.createElement('div');
+                itemDiv.className = 'starr-pi-item';
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                const textInput = document.createElement('input');
+                textInput.type = 'text';
+                textInput.value = `| ${line.trim()}`;
+                itemDiv.appendChild(checkbox);
+                itemDiv.appendChild(textInput);
+                piEditorList.appendChild(itemDiv);
+            });
+            piEditorPopup.style.display = 'flex';
+            piSound.play().catch(() => {});
+        }
+    }
+
+    function displaySummary(summaryText) {
+        const summaryBox = document.getElementById('starr-summary-box');
+        if (summaryBox && summaryContainer) {
+            summaryContainer.style.display = 'flex';
+            summaryBox.innerHTML = `<strong>Summary:</strong> ${summaryText}`;
+        }
     }
 
     function setupSpicyRegenModes() {
         const container = document.getElementById('spicy-regen-container');
         if (!container) return;
         container.innerHTML = '';
-
         const dropdownContainer = document.createElement('div');
         dropdownContainer.className = 'spicy-regen-dropdown';
-
         const mainButton = document.createElement('button');
         mainButton.innerHTML = '⬇️';
         mainButton.className = 'spicy-regen-main-button';
         mainButton.title = "Spicy Regenerate Options (Ctrl+Shift+R)";
-
         const dropdownContent = document.createElement('div');
         dropdownContent.className = 'spicy-regen-dropdown-content';
-
-        const modes = [
-            { label: '❤️ Sweet', tone: 'sweet' },
-            { label: '🔥 Naughty', tone: 'naughty' },
-            { label: '↩️ Deflect', tone: 'deflect' },
-            { label: '😈 Savage', tone: 'savage' },
-            { label: '😠 Sweetly Angry', tone: 'sweetly_angry' }
-        ];
-
+        const modes = [ { label: '❤️ Sweet', tone: 'sweet' }, { label: '🔥 Naughty', tone: 'naughty' }, { label: '↩️ Deflect', tone: 'deflect' }, { label: '😈 Savage', tone: 'savage' }, { label: '😠 Sweetly Angry', tone: 'sweetly_angry' } ];
         modes.forEach(mode => {
             const link = document.createElement('a');
             link.innerHTML = mode.label;
             link.href = '#';
             link.addEventListener('click', (e) => {
                 e.preventDefault();
-                const input = starrInput.value.trim();
-                if (!input) return;
                 conversationHistory = conversationHistory.filter(msg => msg.role !== 'assistant');
-                handleResponseGeneration(input, mode.tone);
+                fetchResponses(mode.tone);
                 dropdownContent.style.display = 'none';
             });
             dropdownContent.appendChild(link);
         });
-
         dropdownContainer.appendChild(mainButton);
         dropdownContainer.appendChild(dropdownContent);
         container.appendChild(dropdownContainer);
-
-        mainButton.addEventListener('click', () => {
-            dropdownContent.style.display = dropdownContent.style.display === 'block' ? 'none' : 'block';
-        });
-
-        window.addEventListener('click', (event) => {
-            if (!dropdownContainer.contains(event.target)) {
-                dropdownContent.style.display = 'none';
-            }
-        });
+        mainButton.addEventListener('click', () => { dropdownContent.style.display = dropdownContent.style.display === 'block' ? 'none' : 'block'; });
+        window.addEventListener('click', (event) => { if (!dropdownContainer.contains(event.target)) { dropdownContent.style.display = 'none'; } });
     }
 
-    // --- Add Event Listeners ---
-    submitConeIdButton.addEventListener("click", handleManualConeIdSubmit);
-    coneIdInput.addEventListener("keydown", async (event) => { if (event.key === "Enter") { event.preventDefault(); await handleManualConeIdSubmit(); } });
-    document.getElementById("starr-close").addEventListener("click", () => { popup.style.setProperty('display', 'none', 'important'); isUIPopulated = false; resetPersona(); });
-    minimizeButton.addEventListener("click", () => { popup.style.setProperty('display', 'none', 'important'); });
-    starrResponses.addEventListener("click", handleReplyClick);
-
-    starrSendButton.addEventListener("click", () => {
-        const input = starrInput.value.trim();
-        if (!input) return;
-        conversationHistory = getAllCustomerMessages().length > 0 ? getAllCustomerMessages() : [{ role: "user", content: input }];
-        handleResponseGeneration(input, 'plain');
-    });
-
-    document.getElementById("starr-regenerate").addEventListener("click", () => {
-        const input = starrInput.value.trim();
-        if (!input) { alert("Nothing to regenerate, baby."); return; }
-        conversationHistory = conversationHistory.filter(msg => msg.role !== 'assistant');
-        handleResponseGeneration(input, 'plain');
-    });
+    function applyTheme(themeName) {
+        const themeClasses = ['theme-midnight', 'theme-halloween', 'theme-valentine', 'theme-warning-orange', 'theme-emergency-red', 'bubblegum'].map(t => t.startsWith('theme-') ? t : 'theme-' + t);
+        document.documentElement.classList.remove(...themeClasses, 'theme-bubblegum');
+        if (themeName && themeName !== 'bubblegum' && !themeName.startsWith('theme-')) { themeName = 'theme-' + themeName; }
+        if (themeName && themeName !== 'theme-bubblegum') { document.documentElement.classList.add(themeName); }
+    }
     
+    function updateButtonLabelsForUIMode() {
+        const isLandscape = !document.body.classList.contains('ui-portrait');
+        document.getElementById('starr-send').innerHTML = isLandscape ? 'Send' : '📤';
+        document.getElementById('starr-regenerate').innerHTML = isLandscape ? 'Regenerate' : '🔄';
+        document.getElementById('starr-force-key').innerHTML = isLandscape ? 'Force New API Key' : '🔑';
+        document.getElementById('starr-settings-button').innerHTML = isLandscape ? 'Settings' : '⚙️';
+        document.getElementById('starr-close').innerHTML = isLandscape ? 'Close' : '❌';
+    }
+    
+    function getTimeOfDay() {
+        const timeElement = document.querySelector(CUSTOMER_INFO_SELECTORS.localTime);
+        if (!timeElement) return "the current time";
+        const hour = parseInt(timeElement.textContent.trim().split(':')[0], 10);
+        if (isNaN(hour)) return "the current time";
+        if (hour >= 5 && hour < 12) return "morning";
+        if (hour >= 12 && hour < 18) return "afternoon";
+        if (hour >= 18 && hour < 21) return "evening";
+        return "night";
+    }
+
+    function updateThemeBasedOnTime() {
+        if (!isAutoThemeEnabled) return;
+        const timePeriod = getTimeOfDay();
+        const themeMap = { night: 'theme-midnight', morning: 'bubblegum', afternoon: 'theme-valentine', evening: 'theme-halloween' };
+        const themeToSet = themeMap[timePeriod] || 'bubblegum';
+        applyTheme(themeToSet);
+        GM_setValue('starr_current_theme', themeToSet);
+    }
+
+    function getLoggedInConeId() {
+        const coneIdElement = document.querySelector(CONE_ID_UI_SELECTOR);
+        if (coneIdElement) {
+            const match = coneIdElement.textContent.trim().match(/(\w+)$/);
+            if (match && match[1]) return match[1];
+        }
+        return null;
+    }
+
+    async function performFinalAuthorizationCheck() {
+        if (!waitingForUiDetectionAndMessage) return;
+        const uiConeId = getLoggedInConeId();
+        if (uiConeId && storedUserConeId && uiConeId === storedUserConeId && isAuthorized) {
+            waitingForUiDetectionAndMessage = false;
+            accessDeniedPermanent = false;
+            updatePopupUI();
+            GM_notification({ text: "Starr access fully confirmed! Start chatting, baby.", timeout: 3000, title: "Starr Activated ✨" });
+        } else if (uiConeId && storedUserConeId && uiConeId !== storedUserConeId) {
+            accessDeniedPermanent = true;
+            updatePopupUI();
+            GM_setValue('user_cone_id', null);
+            isAuthorized = false;
+        }
+    }
+
+    function isPersonaIntro(msgEl, idx) {
+        if (idx !== 0) return false;
+        const messageContainer = msgEl.closest('div.d-flex.gap-2');
+        if (!messageContainer || !messageContainer.querySelector("img")) return false;
+        const text = msgEl.innerText.toLowerCase();
+        const feminineMarkers = ["baby", "darling", "gorgeous", "honey", "sweetheart"];
+        const explicitMarkers = ["wet", "naked", "hard", "cum", "horny", "kiss", "touch", "pussy", "dick"];
+        if (feminineMarkers.some(w => text.includes(w)) && explicitMarkers.some(w => text.includes(w))) return true;
+        return false;
+    }
+
+    function getAllCustomerMessages() {
+        const messages = document.querySelectorAll(ALL_CUSTOMER_MESSAGES_SELECTOR);
+        const processedMessages = [];
+        const siteChatInputValue = document.querySelector(REPLY_INPUT_SELECTOR)?.value.trim() || '';
+        const customerMessages = Array.from(messages).filter((msg, idx) => !isPersonaIntro(msg, idx));
+        customerMessages.forEach(messageElement => {
+            const messageText = messageElement.innerText.trim();
+            if (messageText && messageText !== siteChatInputValue) {
+                processedMessages.push({ role: "user", content: messageText });
+            }
+        });
+        return processedMessages;
+    }
+
+    async function pollForNewMessages() {
+        if (isAuthorized) {
+            const uiConeId = getLoggedInConeId();
+            if (uiConeId && storedUserConeId && uiConeId !== storedUserConeId) {
+                isAuthorized = false; storedUserConeId = null; isUIPopulated = false; GM_setValue('user_cone_id', null);
+                alert("Starr has detected a change in your CONE ID. Access has been reset for security.");
+                initializeStarrPopup(); return;
+            }
+        }
+        if (!isAuthorized) return;
+        if (waitingForUiDetectionAndMessage) {
+            await performFinalAuthorizationCheck();
+            if (accessDeniedPermanent || waitingForUiDetectionAndMessage) return;
+        }
+        if (accessDeniedPermanent) return;
+
+        const allCustomerMessages = getAllCustomerMessages();
+        if (allCustomerMessages.length > 0) {
+            const currentLatestMessageText = allCustomerMessages[allCustomerMessages.length - 1].content;
+            if (currentLatestMessageText !== lastProcessedMessage) {
+                lastProcessedMessage = currentLatestMessageText;
+                resetPersona();
+                updateThemeBasedOnTime();
+                checkAndSummarize();
+                conversationHistory = allCustomerMessages;
+                popup.style.setProperty('display', 'flex', 'important');
+                updatePopupUI();
+                starrInput.value = currentLatestMessageText;
+                starrInput.focus();
+                await fetchResponses();
+            }
+        }
+    }
+
+    let currentTimerState = 'normal';
+    function pollForTimer() {
+        if (!isTimerWarningEnabled || popup.style.display === 'none') { if (currentTimerState !== 'normal') resetTimerState(); return; }
+        const timerElement = document.querySelector(TIMER_WARNING_CONFIG.selector);
+        if (!timerElement) { if (currentTimerState !== 'normal') resetTimerState(); return; }
+        const [minutes, seconds] = timerElement.textContent.trim().split(':').map(Number);
+        const totalSeconds = (minutes * 60) + seconds;
+        if (totalSeconds <= 0) { if (currentTimerState !== 'normal') { resetTimerState(); document.getElementById('starr-close').click(); } }
+        else if (totalSeconds <= 60) { if (currentTimerState !== 'emergency') { currentTimerState = 'emergency'; applyTheme('emergency-red'); starrHeader.innerHTML = "⚠️ REPLY NOW! ⚠️"; warningSound.pause(); emergencySound.play().catch(()=>{}); } }
+        else if (totalSeconds <= 120) { if (currentTimerState !== 'warning') { currentTimerState = 'warning'; applyTheme('warning-orange'); starrHeader.innerHTML = "⚠️ Message time running out..."; emergencySound.pause(); warningSound.play().catch(()=>{}); } }
+        else { if (currentTimerState !== 'normal') resetTimerState(); }
+    }
+
+    function resetTimerState() {
+        warningSound.pause(); emergencySound.pause();
+        warningSound.currentTime = 0; emergencySound.currentTime = 0;
+        starrHeader.innerHTML = "Talk to Starr, baby💦...";
+        if (isAutoThemeEnabled) updateThemeBasedOnTime();
+        else applyTheme(GM_getValue('starr_current_theme', 'bubblegum'));
+        currentTimerState = 'normal';
+    }
+
+    function pasteIntoLogbook(textToPaste) {
+        const logbookElement = document.querySelector('textarea[aria-label="member-note-message"]');
+        if (logbookElement) {
+            logbookElement.focus(); logbookElement.click();
+            const existingLog = logbookElement.value.trim();
+            logbookElement.value = existingLog ? `${textToPaste}\n${existingLog}` : textToPaste;
+            logbookElement.dispatchEvent(new Event('input', { bubbles: true }));
+            logbookElement.dispatchEvent(new Event('change', { bubbles: true }));
+            logbookElement.blur(); return true;
+        }
+        return false;
+    }
+
+    async function applySavedUIPreferences() {
+        const savedDarkMode = GM_getValue('starr_dark_mode', false);
+        darkModeToggle.checked = savedDarkMode;
+        if (savedDarkMode) document.documentElement.classList.add("dark-mode");
+        const savedSendButtonGlow = GM_getValue('starr_send_button_glow', true);
+        sendButtonGlowToggle.checked = savedSendButtonGlow;
+        starrSendButton.classList.toggle("glow", savedSendButtonGlow);
+        summaryToggle.checked = GM_getValue('starr_summary_enabled', true);
+        const savedPiScanToggle = GM_getValue('starr_pi_scan_enabled', true);
+        piScanToggle.checked = savedPiScanToggle;
+        piScanButton.style.display = savedPiScanToggle ? 'flex' : 'none';
+        isTimerWarningEnabled = GM_getValue('starr_timer_warning_enabled', true);
+        timerWarningToggle.checked = isTimerWarningEnabled;
+        voiceReplyToggle.checked = GM_getValue('starr_voice_reply', true);
+        isScrutinyEnabled = GM_getValue('starr_scrutiny_enabled', true);
+        scrutinyToggle.checked = isScrutinyEnabled;
+        starrEngineSelect.value = GM_getValue('starr_engine', 'zephyr');
+        isAutoThemeEnabled = await GM_getValue('starr_auto_theme_enabled', false);
+        autoThemeToggle.checked = isAutoThemeEnabled;
+        if (isAutoThemeEnabled) updateThemeBasedOnTime();
+        else applyTheme(GM_getValue('starr_current_theme', 'bubblegum'));
+    }
+
+    function getPersonaInfo() {
+        const nameElement = document.querySelector('h5.fw-bold.mb-1');
+        const locationElement = document.querySelector('h6.text-black-50');
+        const aboutElement = document.querySelector('#about-profile');
+        let name = "the other person";
+        if (nameElement) {
+            let fullText = nameElement.textContent.trim();
+            const startIndex = fullText.indexOf('(');
+            const endIndex = fullText.indexOf(')');
+            name = (startIndex !== -1 && endIndex !== -1 && endIndex > startIndex) ? fullText.substring(startIndex + 1, endIndex) : fullText;
+        }
+        return { name, location: locationElement?.textContent.trim() || "an unknown location", about: aboutElement?.textContent.trim() || null };
+    }
+
+    function getCustomerInfo() {
+        const getElementText = (selector) => document.querySelector(selector)?.textContent.trim() || null;
+        return {
+            gender: getElementText(CUSTOMER_INFO_SELECTORS.gender) || "male",
+            status: getElementText(CUSTOMER_INFO_SELECTORS.status) || "unknown",
+            age: getElementText(CUSTOMER_INFO_SELECTORS.age) || "unknown",
+            location: getElementText(CUSTOMER_INFO_SELECTORS.location) || "your area",
+            about: getElementText(CUSTOMER_INFO_SELECTORS.aboutUser)
+        };
+    }
+    
+    // --- EVENT LISTENERS ---
+    button.addEventListener("click", async () => {
+        unlockAudio();
+        const hasSeenWelcome = await GM_getValue('hasSeenWelcomePage', false);
+        const savedUiMode = await GM_getValue('starr_ui_mode', null);
+        if (!hasSeenWelcome) displayWelcomeScreen();
+        else if (!savedUiMode) displayModeSelection();
+        else initializeStarrPopup();
+    });
+    document.getElementById("starr-close").addEventListener("click", () => {
+        popup.style.setProperty('display', 'none', 'important'); waitingForUiDetectionAndMessage = false; authMessage.textContent = ""; waitingMessage.textContent = ""; isUIPopulated = false; resetPersona();
+    });
+    minimizeButton.addEventListener("click", () => { popup.style.setProperty('display', 'none', 'important'); });
+    submitConeIdButton.addEventListener("click", handleManualConeIdSubmit);
+    coneIdInput.addEventListener("keydown", async (e) => { if (e.key === "Enter") { e.preventDefault(); await handleManualConeIdSubmit(); } });
+    starrResponses.addEventListener("click", handleReplyClick);
+    document.getElementById("starr-send").addEventListener("click", () => {
+        if (accessDeniedPermanent || waitingForUiDetectionAndMessage || !starrInput.value.trim()) return;
+        conversationHistory = getAllCustomerMessages().length > 0 ? getAllCustomerMessages() : [{ role: "user", content: starrInput.value.trim() }];
+        fetchResponses('plain');
+    });
+    document.getElementById("starr-regenerate").addEventListener("click", () => {
+        if (!starrInput.value.trim()) { alert("Nothing to regenerate, baby."); return; }
+        conversationHistory = conversationHistory.filter(msg => msg.role !== 'assistant');
+        fetchResponses('plain');
+    });
     document.getElementById("starr-force-key").addEventListener("click", () => {
         GM_setValue("starr_openrouter_api_key", null);
         alert("Starr's OpenRouter.ai API key has been cleared. You will be prompted for a new key on next use.");
     });
-    
-    starrSettingsButton.addEventListener("click", () => {
-        starrSettingsPanel.style.display = starrSettingsPanel.style.display === 'flex' ? 'none' : 'flex';
-    });
-    
-    // Settings toggles
+    starrSettingsButton.addEventListener("click", () => { starrSettingsPanel.style.display = starrSettingsPanel.style.display === 'flex' ? 'none' : 'flex'; });
     darkModeToggle.addEventListener("change", () => { document.documentElement.classList.toggle("dark-mode", darkModeToggle.checked); GM_setValue('starr_dark_mode', darkModeToggle.checked); });
-    autoThemeToggle.addEventListener("change", async () => { isAutoThemeEnabled = autoThemeToggle.checked; await GM_setValue('starr_auto_theme_enabled', isAutoThemeEnabled); if (isAutoThemeEnabled) { updateThemeBasedOnTime(); } else { applyTheme(GM_getValue('starr_current_theme', 'bubblegum')); } });
-    starrEngineSelect.addEventListener("change", () => { GM_setValue('starr_engine', starrEngineSelect.value); });
-    timerWarningToggle.addEventListener("change", () => { isTimerWarningEnabled = timerWarningToggle.checked; GM_setValue('starr_timer_warning_enabled', isTimerWarningEnabled); if (!isTimerWarningEnabled) { resetTimerState(); } });
-    summaryToggle.addEventListener("change", () => { GM_setValue('starr_summary_enabled', summaryToggle.checked); });
-    piScanToggle.addEventListener("change", () => { GM_setValue('starr_pi_scan_enabled', piScanToggle.checked); piScanButton.style.display = piScanToggle.checked ? 'flex' : 'none'; });
-    sendButtonGlowToggle.addEventListener("change", () => { starrSendButton.classList.toggle("glow", sendButtonGlowToggle.checked); GM_setValue('starr_send_button_glow', sendButtonGlowToggle.checked); });
-    voiceReplyToggle.addEventListener("change", () => { GM_setValue('starr_voice_reply', voiceReplyToggle.checked); });
-    scrutinyToggle.addEventListener("change", () => { isScrutinyEnabled = scrutinyToggle.checked; GM_setValue('starr_scrutiny_enabled', isScrutinyEnabled); });
-    
-    themeButtons.forEach(button => {
-        button.addEventListener("click", (event) => {
-            const theme = event.target.dataset.theme;
-            autoThemeToggle.checked = false;
-            isAutoThemeEnabled = false;
-            GM_setValue('starr_auto_theme_enabled', false);
-            applyTheme(theme);
-            GM_setValue('starr_current_theme', theme);
-        });
-    });
-
+    autoThemeToggle.addEventListener("change", async (e) => { isAutoThemeEnabled = e.target.checked; await GM_setValue('starr_auto_theme_enabled', isAutoThemeEnabled); if (isAutoThemeEnabled) updateThemeBasedOnTime(); else applyTheme(GM_getValue('starr_current_theme', 'bubblegum')); });
+    timerWarningToggle.addEventListener("change", (e) => { isTimerWarningEnabled = e.target.checked; GM_setValue('starr_timer_warning_enabled', isTimerWarningEnabled); if (!isTimerWarningEnabled) resetTimerState(); });
+    summaryToggle.addEventListener("change", (e) => GM_setValue('starr_summary_enabled', e.target.checked));
+    piScanToggle.addEventListener("change", (e) => { GM_setValue('starr_pi_scan_enabled', e.target.checked); piScanButton.style.display = e.target.checked ? 'flex' : 'none'; });
+    sendButtonGlowToggle.addEventListener("change", (e) => { starrSendButton.classList.toggle("glow", e.target.checked); GM_setValue('starr_send_button_glow', e.target.checked); });
+    voiceReplyToggle.addEventListener("change", (e) => GM_setValue('starr_voice_reply', e.target.checked));
+    scrutinyToggle.addEventListener("change", (e) => { isScrutinyEnabled = e.target.checked; GM_setValue('starr_scrutiny_enabled', isScrutinyEnabled); });
+    starrEngineSelect.addEventListener("change", (e) => GM_setValue('starr_engine', e.target.value));
+    themeButtons.forEach(btn => btn.addEventListener("click", (e) => { autoThemeToggle.checked = false; isAutoThemeEnabled = false; GM_setValue('starr_auto_theme_enabled', false); applyTheme(e.target.dataset.theme); GM_setValue('starr_current_theme', e.target.dataset.theme); }));
     piScanButton.addEventListener('click', scanMessageForPI);
-    
     piLogCloseButton.addEventListener('click', () => {
-        const itemsToLog = Array.from(piEditorList.querySelectorAll('.starr-pi-item'))
-            .filter(item => item.querySelector('input[type="checkbox"]').checked)
-            .map(item => item.querySelector('input[type="text"]').value);
-
+        const itemsToLog = Array.from(piEditorList.querySelectorAll('.starr-pi-item')).filter(item => item.querySelector('input[type="checkbox"]').checked).map(item => item.querySelector('input[type="text"]').value);
         let successMessage = "No items selected.";
         if (itemsToLog.length > 0) {
-            const textToLog = itemsToLog.join('\n');
-            GM_setClipboard(textToLog, 'text');
-
-            if (pasteIntoLogbook(textToLog)) {
-                successMessage = "Logged & Copied!";
-                setTimeout(() => {
-                    const saveButton = Array.from(document.querySelectorAll('button.btn.btn-secondary')).find(btn => btn.textContent.trim() === 'Save');
-                    if (saveButton) {
-                        saveButton.click();
-                        GM_notification({ text: "PI notes have been auto-pasted!", timeout: 5000, title: "Starr Logbook" });
-                    }
-                }, 250);
-            } else {
-                successMessage = "Copied (Logbook not found)!";
-            }
+            const textToLog = itemsToLog.join('\n'); GM_setClipboard(textToLog, 'text');
+            successMessage = pasteIntoLogbook(textToLog) ? "Logged & Copied!" : "Copied (Logbook not found)!";
         }
-        
         const originalText = piLogCloseButton.textContent;
-        piLogCloseButton.textContent = successMessage;
-        piLogCloseButton.disabled = true;
-        setTimeout(() => {
-            piLogCloseButton.textContent = originalText;
-            piLogCloseButton.disabled = false;
-            piEditorPopup.style.display = 'none';
-        }, 1500);
+        piLogCloseButton.textContent = successMessage; piLogCloseButton.disabled = true;
+        setTimeout(() => { piLogCloseButton.textContent = originalText; piLogCloseButton.disabled = false; piEditorPopup.style.display = 'none'; }, 1500);
     });
-
     piCloseButton.addEventListener('click', () => { piEditorPopup.style.display = 'none'; });
+    violationEditButton.addEventListener('click', () => { pasteIntoSiteChat(textUnderScrutiny); conversationHistory.push({ role: "assistant", content: textUnderScrutiny }); violationWarningOverlay.style.display = 'none'; popup.style.setProperty('display', 'none', 'important'); });
+    violationRegenerateButton.addEventListener('click', () => { violationWarningOverlay.style.display = 'none'; document.getElementById('starr-regenerate').click(); });
+    violationWarningOverlay.addEventListener('click', (e) => { if (e.target === violationWarningOverlay) violationWarningOverlay.style.display = 'none'; });
     
-    violationEditButton.addEventListener('click', () => {
-        pasteIntoSiteChat(textUnderScrutiny);
-        conversationHistory.push({ role: "assistant", content: textUnderScrutiny });
-        violationWarningOverlay.style.display = 'none';
-        popup.style.setProperty('display', 'none', 'important');
-    });
-
-    violationRegenerateButton.addEventListener('click', () => {
-        violationWarningOverlay.style.display = 'none';
-        document.getElementById('starr-regenerate').click();
-    });
-
-    violationWarningOverlay.addEventListener('click', (event) => {
-        if (event.target === violationWarningOverlay) {
-            violationWarningOverlay.style.display = 'none';
-        }
-    });
-
-    document.addEventListener('keydown', (event) => {
-        const isCtrl = event.ctrlKey || event.metaKey;
-
-        if (violationWarningOverlay.style.display === 'flex') {
-            if (event.key === 'Escape') { event.preventDefault(); violationWarningOverlay.style.display = 'none'; }
-            else if (event.key === 'Enter') { event.preventDefault(); violationEditButton.click(); }
-            return;
-        }
-        if (piEditorPopup.style.display === 'flex') {
-            if (event.key === 'Escape') { event.preventDefault(); piEditorPopup.style.display = 'none'; }
-            return;
-        }
-
-        if (isCtrl && event.shiftKey && event.key.toLowerCase() === 's') {
-            event.preventDefault();
-            if (popup.style.display === 'none' || popup.style.getPropertyValue('display') === 'none') { button.click(); }
-            else { document.getElementById('starr-close').click(); }
-            return;
-        }
-
-        const popupIsVisible = popup.style.display === 'flex' || popup.style.getPropertyValue('display') === 'flex';
-
-        if (popupIsVisible && event.key.toLowerCase() === 't') {
-            const activeEl = document.activeElement.tagName.toLowerCase();
-            if (activeEl !== 'input' && activeEl !== 'textarea') {
-                event.preventDefault();
-                starrSettingsButton.click();
-                return;
-            }
-        }
-
-        if (isCtrl && event.key.toLowerCase() === 'm') {
-            event.preventDefault();
-            if (popupIsVisible) { minimizeButton.click(); } else { button.click(); }
-            return;
-        }
-
-        if (event.key === 'Tab' && popupIsVisible) {
-            event.preventDefault();
-            piScanButton.click();
-            return;
-        }
-
-        if (isCtrl && event.key.toLowerCase() === 'q') {
-            event.preventDefault();
-            forceSummary();
-            return;
-        }
-
-        if (!popupIsVisible) { return; }
-
-        if (isCtrl && event.key.toLowerCase() === 'r') {
-            event.preventDefault();
-            document.getElementById('starr-regenerate').click();
-            return;
-        }
-
-        if (isCtrl && event.shiftKey && event.key.toLowerCase() === 'r') {
-            event.preventDefault();
-            const naughtyButton = document.querySelector('.spicy-regen-dropdown-content a:nth-child(2)');
-            if (naughtyButton) naughtyButton.click();
-            return;
-        }
-
-        if (isCtrl && event.key.toLowerCase() === 'k') {
-            event.preventDefault();
-            document.getElementById('starr-force-key').click();
-            return;
-        }
-
-        if (event.key === 'Escape') {
-            event.preventDefault();
-            document.getElementById('starr-close').click();
-            return;
-        }
-
+    // Keydown listeners... (logic is unchanged)
+    document.addEventListener('keydown', (e) => {
+        const isCtrl = e.ctrlKey || e.metaKey;
+        if (violationWarningOverlay.style.display === 'flex') { if (e.key === 'Escape') violationWarningOverlay.style.display = 'none'; else if (e.key === 'Enter') document.getElementById('violation-edit-anyway').click(); return; }
+        if (piEditorPopup.style.display === 'flex') { if (e.key === 'Escape') piEditorPopup.style.display = 'none'; return; }
+        if (isCtrl && e.shiftKey && e.key.toLowerCase() === 's') { e.preventDefault(); if (popup.style.display === 'none') button.click(); else document.getElementById('starr-close').click(); return; }
+        const popupIsVisible = popup.style.display === 'flex';
+        if (popupIsVisible && e.key.toLowerCase() === 't') { const activeEl = document.activeElement.tagName.toLowerCase(); if (activeEl !== 'input' && activeEl !== 'textarea') { e.preventDefault(); starrSettingsButton.click(); return; } }
+        if (isCtrl && e.key.toLowerCase() === 'm') { e.preventDefault(); if (popupIsVisible) minimizeButton.click(); else button.click(); return; }
+        if (e.key === 'Tab' && popupIsVisible) { e.preventDefault(); piScanButton.click(); return; }
+        if (isCtrl && e.key.toLowerCase() === 'q') { e.preventDefault(); forceSummary(); return; }
+        if (!popupIsVisible) return;
+        if (isCtrl && e.key.toLowerCase() === 'r') { e.preventDefault(); document.getElementById('starr-regenerate').click(); return; }
+        if (isCtrl && e.shiftKey && e.key.toLowerCase() === 'r') { e.preventDefault(); const naughtyBtn = document.querySelector('.spicy-regen-dropdown-content a:nth-child(2)'); if (naughtyBtn) naughtyBtn.click(); return; }
+        if (isCtrl && e.key.toLowerCase() === 'k') { e.preventDefault(); document.getElementById('starr-force-key').click(); return; }
+        if (e.key === 'Escape') { e.preventDefault(); document.getElementById('starr-close').click(); return; }
         const replies = starrResponses.querySelectorAll('.starr-reply');
-        if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-            event.preventDefault();
-            if (replies.length === 0) return;
-            if (selectedReplyIndex > -1 && replies[selectedReplyIndex]) {
-                replies[selectedReplyIndex].classList.remove('selected-reply');
-            }
-            if (event.key === 'ArrowDown') {
-                selectedReplyIndex = (selectedReplyIndex + 1) % replies.length;
-            } else {
-                selectedReplyIndex = (selectedReplyIndex - 1 + replies.length) % replies.length;
-            }
-            const newSelectedReply = replies[selectedReplyIndex];
-            newSelectedReply.classList.add('selected-reply');
-            newSelectedReply.scrollIntoView({ block: 'nearest' });
-            return;
-        }
-
-        if (event.key === 'Enter') {
-            if (selectedReplyIndex > -1 && replies[selectedReplyIndex]) {
-                event.preventDefault();
-                replies[selectedReplyIndex].click();
-            } else if (document.activeElement === starrInput && !event.shiftKey) {
-                event.preventDefault();
-                starrSendButton.click();
-            } else if (isCtrl && document.activeElement !== coneIdInput) {
-                event.preventDefault();
-                starrSendButton.click();
-            }
-        }
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); if (replies.length === 0) return; if (selectedReplyIndex > -1 && replies[selectedReplyIndex]) replies[selectedReplyIndex].classList.remove('selected-reply'); if (e.key === 'ArrowDown') selectedReplyIndex = (selectedReplyIndex + 1) % replies.length; else selectedReplyIndex = (selectedReplyIndex - 1 + replies.length) % replies.length; const newSelectedReply = replies[selectedReplyIndex]; newSelectedReply.classList.add('selected-reply'); newSelectedReply.scrollIntoView({ block: 'nearest' }); return; }
+        if (e.key === 'Enter') { if (selectedReplyIndex > -1 && replies[selectedReplyIndex]) { e.preventDefault(); replies[selectedReplyIndex].click(); } else if (document.activeElement === starrInput && !e.shiftKey) { e.preventDefault(); document.getElementById('starr-send').click(); } else if (isCtrl && document.activeElement !== coneIdInput) { e.preventDefault(); document.getElementById('starr-send').click(); } }
     });
 
+    // --- INITIALIZATION ---
     async function init() {
-        await applySavedUIPreferences();
+        applySavedUIPreferences();
         setupSpicyRegenModes();
-        
-        const savedMode = await GM_getValue('starr_ui_mode', null);
-        if (savedMode) { document.body.classList.add(savedMode === 'portrait' ? 'ui-portrait' : 'ui-landscape'); } 
-        else { document.body.classList.add('ui-landscape'); }
+        checkUserAuthorizationStatus();
+        const savedMode = await GM_getValue('starr_ui_mode', 'landscape');
+        document.body.classList.add(savedMode === 'portrait' ? 'ui-portrait' : 'ui-landscape');
         updateButtonLabelsForUIMode();
-
-        button.addEventListener("click", async () => {
-            unlockAudio();
-            const hasSeenWelcome = await GM_getValue('hasSeenWelcomePage', false);
-            const savedUiMode = await GM_getValue('starr_ui_mode', null);
-
-            if (!hasSeenWelcome) { await displayWelcomeScreen(); } 
-            else if (!savedUiMode) { await displayModeSelection(); } 
-            else { await initializeStarrPopup(); }
-        });
-        
         setInterval(pollForNewMessages, 3000);
         setInterval(pollForTimer, 1000);
     }
@@ -1883,4 +1427,3 @@
     init();
 
 })();
-
